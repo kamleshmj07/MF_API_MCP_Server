@@ -7,19 +7,21 @@ Provides performance analysis, benchmark comparison, and key metrics.
 
 import json
 import math
+import ssl
 import asyncio
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any, Tuple
 from enum import Enum
 
 import httpx
+import truststore
 from pydantic import BaseModel, Field, ConfigDict
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 # ─────────────────────────────────────────────
 # Server Init
 # ─────────────────────────────────────────────
-mcp = FastMCP("mutualfund_mcp")
+mcp = MCPServer("mutualfund_mcp")
 
 # ─────────────────────────────────────────────
 # Constants
@@ -28,6 +30,10 @@ MFAPI_BASE        = "https://api.mfapi.in/mf"
 MFAPI_SEARCH_BASE = "https://api.mfapi.in/mf/search"
 MFAPI_LATEST      = "https://api.mfapi.in/mf/{}/latest"
 TIMEOUT           = 20.0
+
+# Verify TLS against the OS certificate store (Windows/macOS/Linux) so
+# corporate proxies and antivirus TLS inspection roots are trusted.
+SSL_CONTEXT = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
 
 # Benchmark mapping by fund category keywords
 # Returns (benchmark_name, benchmark_scheme_code)
@@ -111,7 +117,7 @@ class GetNavHistoryInput(BaseModel):
 # HTTP Helpers
 # ─────────────────────────────────────────────
 async def _get(url: str, params: Optional[Dict] = None) -> Any:
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+    async with httpx.AsyncClient(timeout=TIMEOUT, verify=SSL_CONTEXT) as client:
         resp = await client.get(url, params=params)
         resp.raise_for_status()
         return resp.json()
@@ -470,8 +476,8 @@ async def mf_analyze_fund(params: AnalyzeFundInput) -> str:
             f"| Metric | Value | What it means |",
             f"|--------|-------|---------------|",
             f"| Volatility (Ann.) | {_fmt(volatility)} | Annualised std dev of daily returns |",
-            f"| Sharpe Ratio | {sharpe:.2f if sharpe is not None else 'N/A'} | Return per unit of risk (>1 = good) |",
-            f"| Beta | {beta:.2f if beta is not None else 'N/A'} | Sensitivity to benchmark moves (<1 = less volatile) |",
+            f"| Sharpe Ratio | {f'{sharpe:.2f}' if sharpe is not None else 'N/A'} | Return per unit of risk (>1 = good) |",
+            f"| Beta | {f'{beta:.2f}' if beta is not None else 'N/A'} | Sensitivity to benchmark moves (<1 = less volatile) |",
             f"| Alpha (Ann.) | {_fmt(alpha)} | Excess return over benchmark after risk adjustment |",
             f"| Max Drawdown | {_fmt(max_dd)} | Worst peak-to-trough fall in the period |",
         ]
